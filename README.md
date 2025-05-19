@@ -18,7 +18,7 @@ The work is simple:
 
 In order of priority (from highest to lowest):
 
-- Loading/progress bar
+- ~Loading/progress bar~
 - Thumbnails for each video
 - Support downloading as .mp4
 

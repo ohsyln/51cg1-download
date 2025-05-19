@@ -43,6 +43,22 @@ body {
   box-sizing: border-box;
 }
 
+.progress-container {
+    width: 100%;
+    height: 20px;
+    background-color: #ddd;
+    border-radius: 5px;
+    overflow: hidden;
+    position: relative;
+}
+
+.progress-bar {
+    width: 0%;
+    height: 100%;
+    background-color: #4caf50;
+    transition: width 0.3s ease-in-out;
+}
+
 /* Div styling */
 .div-box {
   width: 100%;
@@ -77,13 +93,24 @@ function reformM3ULink(url) {
     return 'http' + url.replaceAll('\\', '')
 }
 
+function updateProgress(increment, progress, uid) {
+    var out = progress
+    console.log('before:' , out, increment, uid)
+    if (out < 100) {
+        out = out + increment
+        document.getElementById("progress-bar" + uid).style.width = out + "%";
+    }
+    console.log('after:' , out, increment)
+    return out 
+}
+
 function addDOM(url) {
     console.log('Adding download links to DOM..')
 
     // Generate div
-    const r = Math.floor(Math.random() * 10000000)
+    const r = Math.floor(Math.random() * 10000000).toString()
     const newDiv = document.createElement('div')
-    const unique_id = 'div' + r.toString()
+    const unique_id = 'div' + r
     newDiv.id = unique_id
     newDiv.classList.add('div-box')
 
@@ -91,7 +118,7 @@ function addDOM(url) {
     const ahref = document.createElement('a')
     ahref.textContent = 'Click to Download'
     ahref.onclick = function() {
-        userDownload(url)
+        userDownload(url, r)
     }
     ahref.href = 'javascript:;'
 
@@ -197,17 +224,36 @@ function mergeUint8Arrays(arrays) {
   return merged;
 }
 
+/* Create progress bar for a download */
+function createProgressBar(uid) {
+    // Generate div
+    const pcontainer = document.createElement('div')
+    pcontainer.classList.add('progress-container')
+    pcontainer.id = 'progress-container' + uid
+    const pbar = document.createElement('div')
+    pbar.classList.add('progress-bar')
+    pbar.id = 'progress-bar' + uid 
+
+    document.getElementById('div' + uid).appendChild(pcontainer)
+    document.getElementById('progress-container' + uid).appendChild(pbar)
+}
+
 /* Individually fetches and decrypts each part, then return all parts */
-async function crawlM3U(url) {
+async function crawlM3U(url, uid) {
     console.log('Downloading .ts parts from:', url)
+
+    createProgressBar(uid)
+
     var parts = []
     var crypto_info
+    var increment = 0
     await fetch(url)
     .then(response => response.text())
     .then(text => {
         console.log(text)
         const elements = text.split('\n')
         const number_of_parts = Math.floor((elements.length - 7) / 2)
+        increment = 100 / number_of_parts
         for (const element of elements) {
             if (element.startsWith('#EXT-X-KEY')) {
                 crypto_info = element
@@ -217,7 +263,7 @@ async function crawlM3U(url) {
                 parts.push(element)
             }
         }
-        console.log('Expected parts:', number_of_parts, 'Retrieved parts:', parts.length)
+        console.log('Expected no.:', number_of_parts, 'Retrieved no.:', parts.length)
     })
     .catch(error => {
         console.error('Error fetching or parsing data:', error)
@@ -228,9 +274,15 @@ async function crawlM3U(url) {
     let key = await getAESkey(crypto_info)
     let iv = getIV(crypto_info)
     let decrypted_parts = []
+    let progress = 0.0
+    let part_no = 1
     // Decrypt each part
     for (const part of parts) {
         decrypted_parts.push(await decryptBlob(part, key, iv)) 
+        progress = updateProgress(increment, progress, uid)
+        console.log('Downloading part:', part_no)
+        part_no += 1
+    console.log(increment, progress)
     }
     // Merge
     return mergeUint8Arrays(decrypted_parts) 
@@ -247,9 +299,10 @@ async function forceDownload(blob, output_name) {
 }
 
 /* Called when user clicks download link */
-async function userDownload(url) {
-    var ts = await crawlM3U(url)
-    forceDownload(new Blob([ts]), 'output.ts')
+async function userDownload(url, uid) {
+    const r = Math.floor(Math.random() * 10000000).toString()
+    var ts = await crawlM3U(url, uid)
+    forceDownload(new Blob([ts]), r + '.ts')
 }
 /* Called when user submits their url */
 async function userSubmit() {
@@ -266,7 +319,7 @@ async function userSubmit() {
 51cg1 Downloader (only supports downloading as .ts) 
 <br/><br/>
 <div class="input">
-    <input id='user-input' type="text" placeholder="https://www.51cg1.com/archives/207339/"></input>
+    <input id='user-input' type="text" placeholder="https://www.51cg1.com/archives/207440/"></input>
     <input id='submit-button' type="submit" onclick="userSubmit()"></input>
 </div>
 <br/>
