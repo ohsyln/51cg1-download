@@ -79,8 +79,6 @@ function reformM3ULink(url) {
 
 function addDOM(url) {
     console.log('Adding download links to DOM..')
-    // Clear port
-    document.getElementById('container').innerHTML = ''
 
     // Generate div
     const r = Math.floor(Math.random() * 10000000)
@@ -255,6 +253,9 @@ async function userDownload(url) {
 }
 /* Called when user submits their url */
 async function userSubmit() {
+    // Clear port
+    document.getElementById('container').innerHTML = ''
+    // Get links
     url = document.getElementById('user-input').value
     await crawlUrls(url)
 }
