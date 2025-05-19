@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Downloader</title>
+<style>
+body {
+    background-color: #D3D3D3;
+}
+/* Container styling */
+.container {
+    width: 100%;
+    max-width: 400px;
+    margin: auto;
+    padding: 10px;
+    box-sizing: border-box; /* Prevents overflow */
+}
+
+/* Input field styling */
+#user-input {
+  width: 100%;
+  max-width: 100%;
+  padding: 10px;
+  font-size: 16px;
+  border: 1px solid #ccc;
+  border-radius: 5px;
+  box-sizing: border-box;
+}
+
+/* Button styling */
+#submit-button {
+  width: 100%;
+  padding: 10px;
+  font-size: 16px;
+  background-color: #007bff;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  margin-top: 10px;
+  margin-bottom: 10px;
+  box-sizing: border-box;
+}
+
+/* Div styling */
+.div-box {
+  width: 100%;
+  padding: 15px;
+  margin-bottom: 10px;
+  background-color: #f4f4f4;
+  border-radius: 5px;
+  text-align: center;
+  box-sizing: border-box;
+}
+
+/* Responsive tweaks */
+@media (max-width: 600px) {
+  input, button {
+    font-size: 14px;
+    padding: 12px;
+  }
+}
+</style>
+<script>
+if (!crossOriginIsolated) SharedArrayBuffer = ArrayBuffer;
+
+function extractM3U(text) {
+    const delimiter = '&'
+    const startString = 'http'
+    const regex = new RegExp(`(?<=${startString})(.*?)(?=${delimiter})`)
+    const match = text.match(regex)
+    return match ? match[1] : null
+}
+
+function reformM3ULink(url) {
+    return 'http' + url.replaceAll('\\', '')
+}
+
+function addDOM(url) {
+    console.log('Adding download links to DOM..')
+    // Clear port
+    document.getElementById('container').innerHTML = ''
+
+    // Generate div
+    const r = Math.floor(Math.random() * 10000000)
+    const newDiv = document.createElement('div')
+    const unique_id = 'div' + r.toString()
+    newDiv.id = unique_id
+    newDiv.classList.add('div-box')
+
+    // Generate <a> tag for user to click
+    const ahref = document.createElement('a')
+    ahref.textContent = 'Click to Download'
+    ahref.onclick = function() {
+        userDownload(url)
+    }
+    ahref.href = 'javascript:;'
+
+    document.getElementById('container').append(newDiv)
+    //document.getElementById(unique_id).append(imgElement)
+    document.getElementById(unique_id).append(ahref)
+}
+
+async function crawlUrls(url) {
+    console.log('Crawling:', url)
+    await fetch(url)
+    .then(response => response.text())
+    .then(text => {
+        const parser = new DOMParser()
+        const doc = parser.parseFromString(text, 'text/html')
+
+        const elements = doc.querySelectorAll('div.dplayer')
+        elements.forEach(element => {
+            let text = element.getAttribute('data-config')
+            let extracted = extractM3U(text) 
+            let reformed = reformM3ULink(extracted)
+            console.log('Reformed M3U link:', reformed)
+            addDOM(reformed)
+        })
+    })
+    .catch(error => {
+        console.error('Error fetching or parsing data:', error)
+    })
+}
+
+/* Converts hexString to Uint8Array */
+function hexToUint8Array(hexString) {
+  if (hexString.length % 2 !== 0) {
+    throw new Error("Hex string must have an even number of characters");
+  }
+
+  const byteArray = new Uint8Array(hexString.length / 2);
+  for (let i = 0; i < hexString.length; i += 2) {
+    const hexByte = hexString.substring(i, i + 2);
+    const byte = parseInt(hexByte, 16);
+    byteArray[i / 2] = byte;
+  }
+  return byteArray;
+}
+
+/* Helper function to fetch AES key */
+async function getAESkey(text) {
+    console.log('Retrieving AES key..')
+    const delimiter = '"'
+    const startString = 'URI="'
+    const regex = new RegExp(`(?<=${startString})(.*?)(?=${delimiter})`)
+    const match = text.match(regex)
+    const response = await fetch(match[1])
+    const arrayBuffer = await response.arrayBuffer()
+    const out = new Uint8Array(arrayBuffer)
+    console.log('Extracted AES key:', out)
+    return out
+}
+
+/* Helper function to extract IV */
+function getIV(text) {
+    console.log('Extracting IV..')
+    const hx = text.split('=0x')[1]
+    const out = hexToUint8Array(hx)
+    console.log('Extracted IV:', out)
+    return out
+}
+
+/* Used to decrypt blob response that is fetched from url */
+async function decryptBlob(url, key, iv) {
+  const response = await fetch(url)
+  const encryptedBlob = await response.blob()
+  const encryptedData = await encryptedBlob.arrayBuffer()
+  const keyBytes = await crypto.subtle.importKey(
+    "raw",
+    key,
+    { name: "AES-CBC", },
+    false,
+    ["decrypt"]
+  );
+
+  const decryptedBytes = await crypto.subtle.decrypt(
+    { name: "AES-CBC", iv: iv },
+    keyBytes,
+    encryptedData 
+  );
+
+  return new Uint8Array(decryptedBytes)
+}
+
+/* Helper function to merge Uint8Arrays */
+function mergeUint8Arrays(arrays) {
+  let totalLength = 0;
+  for (const arr of arrays) {
+    totalLength += arr.length;
+  }
+  const merged = new Uint8Array(totalLength);
+  let offset = 0;
+  for (const arr of arrays) {
+    merged.set(arr, offset);
+    offset += arr.length;
+  }
+  return merged;
+}
+
+/* Individually fetches and decrypts each part, then return all parts */
+async function crawlM3U(url) {
+    console.log('Downloading .ts parts from:', url)
+    var parts = []
+    var crypto_info
+    await fetch(url)
+    .then(response => response.text())
+    .then(text => {
+        console.log(text)
+        const elements = text.split('\n')
+        const number_of_parts = Math.floor((elements.length - 7) / 2)
+        for (const element of elements) {
+            if (element.startsWith('#EXT-X-KEY')) {
+                crypto_info = element
+                console.log(crypto_info)
+            }
+            if (element.startsWith('http')) {
+                parts.push(element)
+            }
+        }
+        console.log('Expected parts:', number_of_parts, 'Retrieved parts:', parts.length)
+    })
+    .catch(error => {
+        console.error('Error fetching or parsing data:', error)
+        return null
+    })
+   
+    console.log('crypto_info', crypto_info, typeof crypto_info)
+    let key = await getAESkey(crypto_info)
+    let iv = getIV(crypto_info)
+    let decrypted_parts = []
+    // Decrypt each part
+    for (const part of parts) {
+        decrypted_parts.push(await decryptBlob(part, key, iv)) 
+    }
+    // Merge
+    return mergeUint8Arrays(decrypted_parts) 
+}
+
+async function forceDownload(blob, output_name) {
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = output_name;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(link.href); // Clean up memory
+}
+
+/* Called when user clicks download link */
+async function userDownload(url) {
+    var ts = await crawlM3U(url)
+    forceDownload(new Blob([ts]), 'output.ts')
+}
+/* Called when user submits their url */
+async function userSubmit() {
+    url = document.getElementById('user-input').value
+    await crawlUrls(url)
+}
+
+</script>
+</head>
+<body>
+51cg1 Downloader (only supports downloading as .ts) 
+<br/><br/>
+<div class="input">
+    <input id='user-input' type="text" placeholder="https://www.51cg1.com/archives/207339/"></input>
+    <input id='submit-button' type="submit" onclick="userSubmit()"></input>
+</div>
+<br/>
+
+<div class="container" id="container">
+</div>
+
+</body>
+</html>
